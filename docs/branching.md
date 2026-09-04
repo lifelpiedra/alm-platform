@@ -2,91 +2,135 @@
 
 ## Objetivo
 
-El branching organiza el trabajo y evita que cambios incompletos lleguen directamente a producción. Para este MVP usaremos dos ramas permanentes y ramas temporales para cada cambio o entrega.
+Este documento define el flujo mínimo de ramas para el MVP de ALM de Power Platform y Finance & Operations.
 
-## Árbol general de ramas
+El objetivo es separar:
 
-```text
-                              ┌──────────────────────────────┐
-                              │            main              │
-                              │  Código aprobado en PROD    │
-                              └──────────────┬───────────────┘
-                                             │
-                         hotfix/* ──────────┘
-                         │                   │
-                         └──── PR ──────────┴──> main
-                                             │
-                                             └── PR de sincronización ──> develop
+- el código actualmente aprobado para producción;
+- el trabajo que se está preparando para una próxima versión;
+- el desarrollo de funcionalidades y correcciones;
+- la preparación y validación de una entrega.
 
- develop
-    │
-    ├── feature/* ── PR ──> develop
-    │
-    ├── bugfix/*  ── PR ──> develop
-    │
-    └── release/* ── PR ──> main ──> PROD
-                         │
-                         └── PR de sincronización ──> develop
-```
+Para este MVP usaremos:
 
-La secuencia normal es:
+- dos ramas permanentes: `main` y `develop`;
+- ramas temporales para funcionalidades, correcciones y releases;
+- promoción manual entre ambientes.
+
+> La rama Git no es el ambiente. Una rama representa una línea de cambios; el despliegue a DEV, QA, UAT o PROD se realiza manualmente según el procedimiento de promoción.
+
+## Concepto principal
 
 ```text
-feature/* o bugfix/*
-        │
-        └── Pull Request
-                │
-                ▼
-             develop
-                │
-                └── Crear release/*
-                        │
-                        └── Pull Request
-                                │
-                                ▼
-                              main
-                                │
-                                └── Tag + despliegue manual
-                                      │
-                                      ▼
-                                     PROD
+main    = versión aprobada para PROD
+ develop = próxima versión en construcción
 ```
+
+La relación entre ambas ramas es:
+
+```text
+main
+  │
+  └── se crea una sola vez
+          ▼
+       develop
+```
+
+Después de crear `develop`, el flujo normal de trabajo parte de `develop`. No se vuelve a crear `develop` cada vez que se hace una release.
+
+## Árbol general
+
+El flujo normal es el siguiente:
+
+```mermaid
+gitGraph
+   commit id: "main inicial"
+   branch develop
+   checkout develop
+   commit id: "base de desarrollo"
+   branch feature/funcionalidad
+   checkout feature/funcionalidad
+   commit id: "desarrollo"
+   checkout develop
+   merge feature/funcionalidad tag: "PR"
+   branch release/2026.09.0
+   checkout release/2026.09.0
+   commit id: "correcciones de UAT"
+   checkout main
+   merge release/2026.09.0 tag: "PR"
+   commit tag: "v2026.09.0"
+```
+
+La misma idea, en forma de árbol:
+
+```text
+main ────────────────────────────────────────────────●── v2026.09.0 ── PROD
+  \                                                /
+   \                                              /
+    └── develop ──●──────────────────────────────┘
+          \       \
+           \       └── release/2026.09.0 ── PR ──> main
+            \
+             ├── feature/* ── PR ──> develop
+             │
+             └── bugfix/*  ── PR ──> develop
+```
+
+Una vez creada una release, las correcciones de esa release deben llegar a los dos destinos:
+
+```text
+                         ┌── PR ──> main ──> tag ──> PROD
+release/2026.09.0 ───────┤
+                         └── PR ──> develop
+```
+
+Esto es necesario porque una corrección hecha durante QA o UAT puede existir únicamente en `release/*`.
 
 ## Ramas permanentes
 
 ### `main`
 
-Representa el estado aprobado para producción. Solo recibe cambios mediante Pull Request desde una rama `release/*` o `hotfix/*`.
+Representa el código aprobado para producción.
 
-Cada cambio integrado en `main` debe poder relacionarse con una versión desplegable. Después de completar una release se crea un tag, por ejemplo `v2026.09.0`.
+Reglas:
+
+- No se trabaja directamente en `main`.
+- No se hacen pushes directos.
+- Solo recibe cambios mediante PR desde `release/*` o `hotfix/*`.
+- Cada versión productiva debe tener un tag, por ejemplo `v2026.09.0`.
 
 ### `develop`
 
-Rama de integración. Contiene el trabajo aprobado para la siguiente entrega y es la fuente para QA.
+Representa la próxima versión en construcción.
 
-Los cambios de `feature/*` y `bugfix/*` llegan primero a `develop`. La rama debe mantenerse en un estado razonablemente estable; no se debe usar como área de trabajo personal.
+Reglas:
+
+- Las ramas `feature/*` y `bugfix/*` nacen desde `develop`.
+- Los cambios terminados llegan a `develop` mediante PR.
+- `develop` es la base para la integración y las pruebas de QA.
+- Puede contener cambios que todavía no están en producción.
+- No debe recibir pushes directos.
 
 ## Ramas temporales
 
-| Tipo | Se crea desde | Se integra a | Propósito | Ejemplo |
+| Tipo | Se crea desde | Propósito | Destino principal | Ejemplo |
 |---|---|---|---|---|
-| `feature/*` | `develop` | `develop` | Nueva funcionalidad | `feature/customer-approval` |
-| `bugfix/*` | `develop` | `develop` | Corrección encontrada antes de producción | `bugfix/fix-invoice-validation` |
-| `release/*` | `develop` | `main` y después `develop` | Preparar una entrega | `release/2026.09.0` |
-| `hotfix/*` | `main` | `main` y después `develop` | Corrección urgente en producción | `hotfix/2026.09.1` |
+| `feature/*` | `develop` | Nueva funcionalidad | `develop` | `feature/customer-approval` |
+| `bugfix/*` | `develop` | Corrección encontrada antes de PROD | `develop` | `bugfix/fix-invoice-validation` |
+| `release/*` | `develop` | Preparar una versión para PROD | `main` y `develop` | `release/2026.09.0` |
+| `hotfix/*` | `main` | Corrección urgente ya existente en PROD | `main` y `develop` | `hotfix/2026.09.1` |
 
-Usar nombres cortos, descriptivos y en minúsculas. No incluir credenciales, nombres de clientes o información sensible.
+Las ramas temporales se eliminan después de completar sus PRs y terminar la promoción correspondiente.
 
-## Cómo crear las ramas inicialmente
+## Creación inicial de las ramas
 
-Como el repositorio migrado no creó automáticamente las ramas, deben crearse una sola vez. La rama `main` ya existe. Crear `develop` a partir de `main`:
+Al comenzar, normalmente solo existe `main`. `develop` se crea una única vez desde `main`:
 
 ```bash
 git clone https://dev.azure.com/{organization}/{project}/_git/{repo}
 cd {repo}
 
 git fetch origin
-
 git switch main
 git pull origin main
 
@@ -94,67 +138,78 @@ git switch -c develop
 git push -u origin develop
 ```
 
-A partir de ese momento, las ramas temporales se crean desde la rama indicada en la tabla anterior.
-
-## Reglas
-
-1. Proteger `main` y `develop`.
-2. Prohibir pushes directos a ambas ramas.
-3. Requerir al menos una aprobación para cambios normales.
-4. Requerir dos aprobaciones para producción cuando el equipo lo permita.
-5. Resolver conversaciones y checks antes de completar el PR.
-6. Preferir **Squash and merge** para mantener un historial limpio.
-7. Eliminar ramas temporales después del merge.
-8. Etiquetar las versiones productivas con el formato `vYYYY.MM.patch`, por ejemplo `v2026.09.0`.
-9. No reutilizar una rama temporal después de completar su PR.
-10. Toda rama de trabajo debe tener un objetivo identificable, idealmente asociado a un work item de Azure Boards.
-
-## Flujo normal: nueva funcionalidad (`feature/*`)
-
-Una funcionalidad nueva sigue este recorrido:
+El resultado inicial es:
 
 ```text
-1. develop
-      │
-      └── crear feature/customer-approval
-              │
-2.          desarrollar y probar en DEV
-              │
-3.          PR: feature/customer-approval → develop
-              │
-4.          revisión y aprobación
-              │
-5.          merge a develop
-              │
-6.          validar en QA
-              │
-7.          crear release/2026.09.0 desde develop
-              │
-8.          validar en UAT
-              │
-9.          PR: release/2026.09.0 → main
-              │
-10.         merge a main, crear tag v2026.09.0
-              │
-11.         promoción manual a PROD
-              │
-12.         PR: main → develop
+main
+  │
+  └── develop
 ```
 
-### Ejemplo práctico de una feature
+A partir de ese momento, no se crean ramas permanentes adicionales para cada funcionalidad. Las ramas temporales se crean y eliminan según la necesidad.
 
-Supongamos que se necesita agregar una aprobación para solicitudes de compra en Power Platform.
+## Orden del flujo normal
+
+El orden recomendado es:
+
+```text
+1. main
+      │
+      └── crear develop una sola vez
+
+2. develop
+      │
+      ├── crear feature/* para nuevas funcionalidades
+      └── crear bugfix/* para correcciones previas a PROD
+
+3. feature/* o bugfix/*
+      │
+      └── desarrollar, probar en DEV y crear PR hacia develop
+
+4. develop
+      │
+      └── integrar todos los cambios de la entrega y validar en QA
+
+5. release/*
+      │
+      └── crear desde develop y validar en UAT
+
+6. release/*
+      │
+      ├── si hay errores, corregirlos en release/*
+      └── si está aprobada, crear PR hacia main
+
+7. main
+      │
+      └── crear tag y promover manualmente a PROD
+
+8. release/*
+      │
+      └── crear PR hacia develop para devolver las correcciones de la release
+```
+
+## Flujo de una nueva funcionalidad: `feature/*`
+
+Una funcionalidad nueva siempre parte de `develop`.
+
+```text
+develop
+   │
+   └── feature/customer-approval
+           │
+           ├── desarrollo y pruebas en DEV
+           │
+           └── PR ──> develop
+```
+
+### Ejemplo
 
 ```bash
-# Partir de develop actualizado
 git switch develop
 git pull origin develop
-
-# Crear la rama de trabajo
 git switch -c feature/customer-approval
 
-# Realizar cambios, exportar/versionar la solución y probar en DEV
-# ... trabajo local ...
+# Desarrollar, exportar/versionar la solución y probar en DEV
 
 git add .
 git commit -m "Add approval flow for purchase requests"
@@ -163,60 +218,70 @@ git push -u origin feature/customer-approval
 
 Después:
 
-1. Crear un PR de `feature/customer-approval` hacia `develop`.
+1. Crear PR de `feature/customer-approval` hacia `develop`.
 2. Adjuntar evidencia de pruebas en DEV.
-3. Obtener la aprobación del revisor.
+3. Revisar y aprobar el PR.
 4. Completar el PR.
-5. Desplegar o importar manualmente a QA.
-6. Cuando el conjunto de cambios esté listo, crear `release/2026.09.0` desde `develop`.
-7. Validar en UAT y promover la release a `main`.
+5. Eliminar `feature/customer-approval`.
+6. Validar `develop` en QA.
 
-## Flujo de corrección previa a producción (`bugfix/*`)
+La rama `feature/*` no continúa hacia `main` directamente. El cambio llega a producción como parte de una `release/*`.
 
-Un `bugfix/*` se usa para un problema detectado en DEV, QA o UAT que todavía no está en producción.
+## Flujo de una corrección antes de producción: `bugfix/*`
+
+Un `bugfix/*` se usa cuando el defecto se encuentra en DEV, QA o UAT y todavía no es un incidente de producción.
 
 ```text
 develop
    │
    └── bugfix/fix-invoice-validation
            │
-           └── corregir y probar
-                   │
-                   └── PR → develop
-                           │
-                           └── incluir en la próxima release
-                                   │
-                                   └── release/* → main → PROD
+           └── PR ──> develop
+                         │
+                         └── release/* ──> main ──> PROD
 ```
 
-### Ejemplo práctico de un bugfix
-
-Se detecta en QA que la validación de una factura de proveedor permite un valor incorrecto:
+### Ejemplo
 
 ```bash
 git switch develop
 git pull origin develop
 git switch -c bugfix/fix-invoice-validation
 
-# Corregir el problema y probarlo en DEV
+# Corregir y probar en DEV
 
 git add .
 git commit -m "Fix vendor invoice validation"
 git push -u origin bugfix/fix-invoice-validation
 ```
 
-Luego:
+Después:
 
-1. Crear el PR hacia `develop`.
-2. Indicar el defecto corregido y adjuntar la evidencia de la prueba.
+1. Crear PR de `bugfix/fix-invoice-validation` hacia `develop`.
+2. Adjuntar evidencia del defecto y de la corrección.
 3. Completar el PR después de la revisión.
-4. Validar la corrección en QA.
-5. Incluir el bugfix en la siguiente `release/*`.
-6. Promover la release a UAT y posteriormente a `main` y PROD.
+4. Eliminar la rama `bugfix/*`.
+5. Validar en QA.
+6. Incluir el cambio en la siguiente `release/*`.
 
-## Preparación de una release (`release/*`)
+## Flujo de una release: `release/*`
 
-Una `release/*` congela el alcance de una entrega. Después de crearla, solo deben entrar correcciones necesarias para esa entrega; las nuevas funcionalidades deben esperar a otra release.
+Una `release/*` se crea cuando `develop` contiene todos los cambios que se desean incluir en una entrega.
+
+```text
+develop
+   │
+   └── release/2026.09.0
+```
+
+La release congela el alcance de la entrega. Después de crearla:
+
+- no se agregan funcionalidades nuevas;
+- solo se corrigen errores necesarios para esa versión;
+- la validación final se realiza sobre la release;
+- la promoción a producción sale de la release integrada en `main`.
+
+### Crear la release
 
 ```bash
 git switch develop
@@ -225,43 +290,122 @@ git switch -c release/2026.09.0
 git push -u origin release/2026.09.0
 ```
 
-Flujo de la release:
+### Validar la release
 
-1. Crear `release/2026.09.0` desde `develop`.
-2. Promover manualmente la release a UAT.
-3. Ejecutar pruebas funcionales y de regresión.
-4. Corregir problemas directamente en `release/2026.09.0` solo si son necesarios para la entrega.
-5. Abrir PR de `release/2026.09.0` hacia `main`.
-6. Completar el PR después de la aprobación.
-7. Crear el tag `v2026.09.0` sobre `main`.
-8. Promover manualmente a PROD.
-9. Abrir un PR de `main` hacia `develop` para sincronizar cualquier cambio realizado durante la release.
+```text
+release/2026.09.0
+        │
+        ├── QA técnico
+        ├── UAT funcional
+        └── correcciones necesarias en la misma release
+```
 
-## Flujo urgente de producción (`hotfix/*`)
+## ¿Qué pasa si hay errores en la release?
 
-Un `hotfix/*` se usa únicamente cuando el problema ya está en producción y no puede esperar a la siguiente release.
+Si QA o UAT encuentra un error, **no se vuelve normalmente a la rama `feature/*`**.
+
+La funcionalidad ya fue integrada en `develop` y la rama temporal probablemente ya fue eliminada. Además, el error puede ser de integración entre varios cambios.
+
+La corrección se hace directamente en `release/*`:
+
+```text
+release/2026.09.0
+        │
+        └── corregir error
+                │
+                ├── probar nuevamente en QA/UAT
+                └── continuar hacia main cuando esté aprobada
+```
+
+Ejemplo:
+
+```bash
+git switch release/2026.09.0
+git pull origin release/2026.09.0
+
+# Corregir el error encontrado en UAT
+
+git add .
+git commit -m "Fix approval validation found in UAT"
+git push origin release/2026.09.0
+```
+
+La corrección queda inicialmente solo en `release/2026.09.0`. Por eso, al finalizar, la release debe integrarse en ambos destinos:
+
+```text
+release/2026.09.0 ── PR ──> main
+release/2026.09.0 ── PR ──> develop
+```
+
+## Llevar la release a producción
+
+Cuando UAT aprueba la release:
+
+1. Crear PR de `release/2026.09.0` hacia `main`.
+2. Obtener las aprobaciones requeridas.
+3. Completar el PR.
+4. Crear el tag `v2026.09.0` sobre `main`.
+5. Promover manualmente `main` o el commit etiquetado a PROD.
+6. Crear PR de `release/2026.09.0` hacia `develop`.
+7. Completar el PR hacia `develop`.
+8. Eliminar la rama `release/2026.09.0`.
+
+El flujo es:
+
+```text
+release/2026.09.0
+        │
+        ├── PR ──> main ──> tag v2026.09.0 ──> PROD
+        │
+        └── PR ──> develop
+```
+
+## ¿Por qué hay que integrar la release también en `develop`?
+
+Porque `develop` y `main` tienen objetivos diferentes:
+
+```text
+main    = lo que está en PROD
+develop = lo que se prepara para el futuro
+```
+
+Cuando se crea `release/2026.09.0`, inicialmente nace desde `develop`. Si no se hacen correcciones durante UAT, ambas ramas pueden contener el mismo código en ese momento.
+
+Pero si se corrige un error en la release, el cambio queda así:
+
+```text
+develop ────────────────●─────────────── próximo desarrollo
+                          \
+release/2026.09.0 ──────────●── corrección de UAT
+                              \
+main ─────────────────────────●── PROD
+```
+
+La corrección existe en `main`, pero no necesariamente en `develop`. Por eso se hace:
+
+```text
+release/2026.09.0 → develop
+```
+
+No se copia `develop` hacia `main`, porque `develop` puede contener funcionalidades futuras todavía no aprobadas para producción.
+
+## Flujo urgente de producción: `hotfix/*`
+
+Un `hotfix/*` se usa únicamente cuando el problema ya está en PROD y no puede esperar a la siguiente release.
+
+Un hotfix nace desde `main`, no desde `develop`:
 
 ```text
 main / PROD
-      │
-      └── hotfix/2026.09.1
-              │
-              ├── corregir y probar
-              │
-              └── PR → main → tag → PROD
-                              │
-                              └── PR main → develop
+     │
+     └── hotfix/2026.09.1
 ```
 
-### Ejemplo práctico de un hotfix
-
-Se detecta que un flujo crítico en producción está fallando y requiere una corrección inmediata:
+### Ejemplo
 
 ```bash
-# Partir de main, que representa la versión productiva
 git switch main
 git pull origin main
-
 git switch -c hotfix/2026.09.1
 
 # Aplicar únicamente la corrección urgente y probarla
@@ -271,33 +415,111 @@ git commit -m "Fix production approval notification"
 git push -u origin hotfix/2026.09.1
 ```
 
-Luego:
+Después:
 
-1. Crear el PR de `hotfix/2026.09.1` hacia `main`.
-2. Solicitar la revisión prioritaria y adjuntar evidencia de la prueba.
-3. Completar el PR cuando estén satisfechas las políticas.
+1. Crear PR de `hotfix/2026.09.1` hacia `main`.
+2. Obtener la revisión prioritaria.
+3. Completar el PR.
 4. Crear el tag `v2026.09.1` sobre `main`.
-5. Promover manualmente la corrección a PROD.
-6. Abrir un PR de `main` hacia `develop` para que la corrección no se pierda en la siguiente release.
-7. Eliminar la rama `hotfix/2026.09.1` después de completar el proceso.
+5. Promover manualmente a PROD.
+6. Crear PR de `hotfix/2026.09.1` hacia `develop`.
+7. Completar el PR hacia `develop`.
+8. Eliminar la rama `hotfix/*`.
 
-## Regla clave para decidir qué rama usar
+El flujo es:
 
-- **Nueva funcionalidad:** `feature/*` desde `develop`.
-- **Defecto encontrado antes de PROD:** `bugfix/*` desde `develop`.
-- **Preparar una entrega:** `release/*` desde `develop`.
-- **Defecto urgente en PROD:** `hotfix/*` desde `main`.
-
-## Sincronización posterior a una release o hotfix
-
-Cuando un cambio llega a `main`, debe regresar a `develop`. Esto evita que una corrección aplicada durante una release o hotfix desaparezca de la línea de desarrollo.
-
-```bash
-# Alternativa mediante PR, recomendada para mantener trazabilidad
-Origen: main
-Destino: develop
-
-# No hacer push directo a develop si la rama está protegida.
+```text
+main / PROD
+     │
+     └── hotfix/2026.09.1
+             │
+             ├── PR ──> main ──> tag ──> PROD
+             │
+             └── PR ──> develop
 ```
 
-El PR `main → develop` debe revisarse y completarse incluso si parece que no hay diferencias. Si Azure DevOps indica que no hay cambios, basta con dejar constancia de que la rama ya está sincronizada.
+## Regla para decidir qué rama usar
+
+```text
+¿Es una nueva funcionalidad?
+    Sí → feature/* desde develop
+
+¿Es un defecto encontrado antes de PROD?
+    Sí → bugfix/* desde develop
+
+¿La funcionalidad/corrección ya está en develop y se prepara una entrega?
+    Sí → release/* desde develop
+
+¿El defecto ya está en PROD y es urgente?
+    Sí → hotfix/* desde main
+```
+
+## Reglas de integración
+
+1. `feature/*` solo se integra hacia `develop`.
+2. `bugfix/*` solo se integra hacia `develop`.
+3. `release/*` se integra hacia `main` y hacia `develop`.
+4. `hotfix/*` se integra hacia `main` y hacia `develop`.
+5. No se integra directamente `feature/*` o `bugfix/*` hacia `main`.
+6. Si hay errores en una release, se corrigen en `release/*`.
+7. Las correcciones hechas en `release/*` deben llegar también a `develop`.
+8. Las correcciones hechas en `hotfix/*` deben llegar también a `develop`.
+9. No se agregan funcionalidades nuevas a `release/*`.
+10. No se hacen pushes directos a `main` ni a `develop`.
+
+## Reglas generales
+
+1. Proteger `main` y `develop`.
+2. Prohibir pushes directos a ambas ramas.
+3. Requerir al menos una aprobación para cambios normales.
+4. Requerir dos aprobaciones para producción cuando el equipo lo permita.
+5. Resolver conversaciones y checks antes de completar el PR.
+6. Preferir **Squash merge** para mantener un historial sencillo.
+7. Eliminar ramas temporales después del merge.
+8. Etiquetar versiones productivas con el formato `vYYYY.MM.patch`, por ejemplo `v2026.09.0`.
+9. No reutilizar una rama temporal después de completar su PR.
+10. Asociar cada cambio con un work item de Azure Boards cuando sea posible.
+
+## Resumen visual final
+
+### Entrega normal
+
+```mermaid
+flowchart LR
+    A[main inicial] --> B[develop]
+    B --> C[feature/*]
+    B --> D[bugfix/*]
+    C -->|PR| B
+    D -->|PR| B
+    B --> E[release/*]
+    E -->|PR aprobada| F[main]
+    F --> G[Tag de versión]
+    G --> H[Promoción manual a PROD]
+    E -->|PR de sincronización| B
+```
+
+### Release con error encontrado en UAT
+
+```mermaid
+flowchart TD
+    A[develop] --> B[release/2026.09.0]
+    B --> C{Pruebas UAT}
+    C -->|Error| D[Corregir en release/*]
+    D --> C
+    C -->|Aprobada| E[PR release/* a main]
+    E --> F[main]
+    F --> G[Tag v2026.09.0]
+    G --> H[Promoción manual a PROD]
+    B -->|PR de sincronización| I[develop actualizado]
+```
+
+### Hotfix
+
+```mermaid
+flowchart LR
+    A[main / PROD] --> B[hotfix/*]
+    B -->|PR| C[main]
+    C --> D[Tag]
+    D --> E[PROD]
+    B -->|PR| F[develop]
+```
